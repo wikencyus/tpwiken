@@ -1,5 +1,5 @@
--- Delta Executor UI Panel dengan fitur drag & minimize
--- Hanya untuk lingkungan testing yang sah
+-- Auto-Teleport to Wikenitsu with Draggable Panel
+-- Delta Executor Version
 
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -8,67 +8,132 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
 -- Configuration
-local DELTA_API_URL = "https://delta-executor.com/api" -- Contoh API endpoint
-local PANEL_SETTINGS = {
-    DefaultSize = UDim2.new(0, 400, 0, 500),
-    MinimizedSize = UDim2.new(0, 400, 0, 40),
-    DefaultPosition = UDim2.new(0.5, -200, 0.5, -250)
+local TARGET_PLAYER_NAME = "Wikenitsu" -- Ganti dengan nama player target
+local TELEPORT_SETTINGS = {
+    Enabled = false,
+    UpdateInterval = 0.1, -- Detik antara update teleport
+    FollowDistance = 3, -- Jarak dari target
+    AutoStart = false -- Mulai otomatis?
 }
 
--- Delta Executor Core Functions
-local DeltaExecutor = {
-    _executionQueue = {},
-    _isConnected = false,
-    _lastExecutionTime = 0
+-- Teleport System
+local TeleportSystem = {
+    _connection = nil,
+    _lastPosition = nil,
+    _isFollowing = false
 }
 
-function DeltaExecutor:Connect()
-    -- Simulate connection to Delta API
-    self._isConnected = true
-    print("[Delta] Connected to execution service")
-    return true
-end
-
-function DeltaExecutor:ExecuteScript(scriptCode)
-    if not self._isConnected then
-        self:Connect()
+function TeleportSystem:StartFollowing()
+    if self._isFollowing then
+        return false, "Already following"
     end
     
-    -- Rate limiting check
-    local currentTime = tick()
-    if currentTime - self._lastExecutionTime < 0.5 then
-        table.insert(self._executionQueue, scriptCode)
-        return false, "Rate limited - Added to queue"
-    end
+    self._isFollowing = true
     
-    self._lastExecutionTime = currentTime
-    
-    -- Simulate script execution
-    local success, result = pcall(function()
-        -- In a real executor, this would be the actual execution
-        local loadFunction = loadstring or load
-        if loadFunction then
-            local compiled = loadFunction(scriptCode)
-            if compiled then
-                return compiled()
+    -- Cari target player
+    local function findTarget()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Name == TARGET_PLAYER_NAME then
+                return p
             end
         end
         return nil
-    end)
+    end
     
-    return success, result
-end
-
-function DeltaExecutor:ExecuteQueue()
-    while #self._executionQueue > 0 do
-        local scriptCode = table.remove(self._executionQueue, 1)
-        local success, result = self:ExecuteScript(scriptCode)
-        
-        if not success then
-            warn("[Delta] Queue execution failed:", result)
+    -- Dapatkan karakter pemain
+    local function getCharacter(player)
+        if player and player.Character then
+            return player.Character
+        end
+        return nil
+    end
+    
+    -- Dapatkan HumanoidRootPart
+    local function getRootPart(character)
+        if character then
+            return character:FindFirstChild("HumanoidRootPart") or 
+                   character:FindFirstChild("Torso") or
+                   character.PrimaryPart
+        end
+        return nil
+    end
+    
+    -- Loop teleport utama
+    self._connection = RunService.Heartbeat:Connect(function(deltaTime)
+        if not self._isFollowing then
+            return
         end
         
-        wait(0.5) -- Rate limit
+        -- Pastikan karakter sendiri ada
+        local myCharacter = getCharacter(player)
+        local myRoot = getRootPart(myCharacter)
+        
+        if not myCharacter or not myRoot then
+            warn("Your character not found!")
+            return
+        end
+        
+        -- Cari target
+        local targetPlayer = findTarget()
+        if not targetPlayer then
+            warn("Target player '" .. TARGET_PLAYER_NAME .. "' not found!")
+            return
+        end
+        
+        local targetCharacter = getCharacter(targetPlayer)
+        local targetRoot = getRootPart(targetCharacter)
+        
+        if not targetCharacter or not targetRoot then
+            warn("Target character not found!")
+            return
+        end
+        
+        -- Cek jika target bergerak
+        local currentPos = targetRoot.Position
+        if self._lastPosition and (currentPos - self._lastPosition).Magnitude < 0.1 then
+            return -- Target tidak bergerak
+        end
+        
+        self._lastPosition = currentPos
+        
+        -- Hitung posisi baru (di belakang target)
+        local offset = Vector3.new(0, 0, TELEPORT_SETTINGS.FollowDistance)
+        local targetCFrame = targetRoot.CFrame
+        local newPosition = targetCFrame:ToWorldSpace(CFrame.new(offset)).Position
+        
+        -- Teleport ke posisi baru
+        myRoot.CFrame = CFrame.new(newPosition, targetRoot.Position)
+        
+        -- Optional: Set velocity ke 0 untuk mencegah sliding
+        myRoot.Velocity = Vector3.new(0, 0, 0)
+        myRoot.RotVelocity = Vector3.new(0, 0, 0)
+    end)
+    
+    return true, "Started following " .. TARGET_PLAYER_NAME
+end
+
+function TeleportSystem:StopFollowing()
+    if not self._isFollowing then
+        return false, "Not following"
+    end
+    
+    self._isFollowing = false
+    
+    if self._connection then
+        self._connection:Disconnect()
+        self._connection = nil
+    end
+    
+    self._lastPosition = nil
+    
+    return true, "Stopped following"
+end
+
+function TeleportSystem:ToggleFollowing()
+    if self._isFollowing then
+        return self:StopFollowing()
+    else
+        return self:StartFollowing()
     end
 end
 
@@ -76,10 +141,9 @@ end
 local DraggablePanel = {}
 DraggablePanel.__index = DraggablePanel
 
-function DraggablePanel.new(name)
+function DraggablePanel.new()
     local self = setmetatable({}, DraggablePanel)
     
-    self.Name = name or "DeltaPanel"
     self.IsMinimized = false
     self.IsDragging = false
     self.DragStart = nil
@@ -94,7 +158,7 @@ end
 function DraggablePanel:CreateUI()
     -- Main ScreenGui
     self.ScreenGui = Instance.new("ScreenGui")
-    self.ScreenGui.Name = "DeltaExecutorUI"
+    self.ScreenGui.Name = "AutoTeleportUI"
     self.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     self.ScreenGui.ResetOnSpawn = false
     self.ScreenGui.Parent = player:WaitForChild("PlayerGui")
@@ -102,9 +166,9 @@ function DraggablePanel:CreateUI()
     -- Main Frame
     self.Panel = Instance.new("Frame")
     self.Panel.Name = "MainPanel"
-    self.Panel.Size = PANEL_SETTINGS.DefaultSize
-    self.Panel.Position = PANEL_SETTINGS.DefaultPosition
-    self.Panel.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    self.Panel.Size = UDim2.new(0, 350, 0, 250)
+    self.Panel.Position = UDim2.new(0, 20, 0, 20)
+    self.Panel.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
     self.Panel.BorderSizePixel = 2
     self.Panel.BorderColor3 = Color3.fromRGB(0, 150, 255)
     self.Panel.Active = true
@@ -116,20 +180,20 @@ function DraggablePanel:CreateUI()
     self.TopBar = Instance.new("Frame")
     self.TopBar.Name = "TopBar"
     self.TopBar.Size = UDim2.new(1, 0, 0, 30)
-    self.TopBar.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+    self.TopBar.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
     self.TopBar.BorderSizePixel = 0
     self.TopBar.Parent = self.Panel
     
     -- Title
     self.Title = Instance.new("TextLabel")
     self.Title.Name = "Title"
-    self.Title.Size = UDim2.new(0.6, 0, 1, 0)
+    self.Title.Size = UDim2.new(0.7, 0, 1, 0)
     self.Title.Position = UDim2.new(0, 10, 0, 0)
     self.Title.BackgroundTransparency = 1
-    self.Title.Text = "Delta Executor v1.0"
-    self.Title.TextColor3 = Color3.fromRGB(0, 200, 255)
+    self.Title.Text = "Auto-Teleport to " .. TARGET_PLAYER_NAME
+    self.Title.TextColor3 = Color3.fromRGB(255, 255, 255)
     self.Title.TextXAlignment = Enum.TextXAlignment.Left
-    self.Title.Font = Enum.Font.Code
+    self.Title.Font = Enum.Font.SourceSansBold
     self.Title.TextSize = 14
     self.Title.Parent = self.TopBar
     
@@ -137,11 +201,11 @@ function DraggablePanel:CreateUI()
     self.MinimizeButton = Instance.new("TextButton")
     self.MinimizeButton.Name = "MinimizeButton"
     self.MinimizeButton.Size = UDim2.new(0, 30, 0, 30)
-    self.MinimizeButton.Position = UDim2.new(1, -70, 0, 0)
+    self.MinimizeButton.Position = UDim2.new(1, -60, 0, 0)
     self.MinimizeButton.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
     self.MinimizeButton.Text = "_"
     self.MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    self.MinimizeButton.Font = Enum.Font.Code
+    self.MinimizeButton.Font = Enum.Font.SourceSansBold
     self.MinimizeButton.TextSize = 18
     self.MinimizeButton.Parent = self.TopBar
     
@@ -153,7 +217,7 @@ function DraggablePanel:CreateUI()
     self.CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
     self.CloseButton.Text = "X"
     self.CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    self.CloseButton.Font = Enum.Font.Code
+    self.CloseButton.Font = Enum.Font.SourceSansBold
     self.CloseButton.TextSize = 14
     self.CloseButton.Parent = self.TopBar
     
@@ -165,91 +229,91 @@ function DraggablePanel:CreateUI()
     self.Content.BackgroundTransparency = 1
     self.Content.Parent = self.Panel
     
-    -- Script Input Area
-    self.ScriptBox = Instance.new("ScrollingFrame")
-    self.ScriptBox.Name = "ScriptBox"
-    self.ScriptBox.Size = UDim2.new(1, 0, 0.7, 0)
-    self.ScriptBox.Position = UDim2.new(0, 0, 0, 0)
-    self.ScriptBox.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-    self.ScriptBox.BorderSizePixel = 1
-    self.ScriptBox.BorderColor3 = Color3.fromRGB(50, 50, 60)
-    self.ScriptBox.ScrollBarThickness = 8
-    self.ScriptBox.Parent = self.Content
+    -- Status Display
+    self.StatusBox = Instance.new("Frame")
+    self.StatusBox.Name = "StatusBox"
+    self.StatusBox.Size = UDim2.new(1, 0, 0, 60)
+    self.StatusBox.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    self.StatusBox.BorderSizePixel = 1
+    self.StatusBox.BorderColor3 = Color3.fromRGB(50, 50, 60)
+    self.StatusBox.Parent = self.Content
     
-    local scriptInput = Instance.new("TextBox")
-    scriptInput.Name = "ScriptInput"
-    scriptInput.Size = UDim2.new(1, -10, 1, -10)
-    scriptInput.Position = UDim2.new(0, 5, 0, 5)
-    scriptInput.BackgroundTransparency = 1
-    scriptInput.TextColor3 = Color3.fromRGB(200, 200, 255)
-    scriptInput.Text = "-- Paste your script here\nprint('Delta Executor Ready')"
-    scriptInput.Font = Enum.Font.Code
-    scriptInput.TextSize = 12
-    scriptInput.TextXAlignment = Enum.TextXAlignment.Left
-    scriptInput.TextYAlignment = Enum.TextYAlignment.Top
-    scriptInput.TextWrapped = true
-    scriptInput.ClearTextOnFocus = false
-    scriptInput.MultiLine = true
-    scriptInput.Parent = self.ScriptBox
-    
-    -- Buttons Container
-    self.ButtonContainer = Instance.new("Frame")
-    self.ButtonContainer.Name = "ButtonContainer"
-    self.ButtonContainer.Size = UDim2.new(1, 0, 0.25, 0)
-    self.ButtonContainer.Position = UDim2.new(0, 0, 0.75, 0)
-    self.ButtonContainer.BackgroundTransparency = 1
-    self.ButtonContainer.Parent = self.Content
-    
-    -- Execute Button
-    self.ExecuteButton = Instance.new("TextButton")
-    self.ExecuteButton.Name = "ExecuteButton"
-    self.ExecuteButton.Size = UDim2.new(0.48, 0, 0, 40)
-    self.ExecuteButton.Position = UDim2.new(0, 0, 0, 5)
-    self.ExecuteButton.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-    self.ExecuteButton.Text = "EXECUTE"
-    self.ExecuteButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    self.ExecuteButton.Font = Enum.Font.Code
-    self.ExecuteButton.TextSize = 14
-    self.ExecuteButton.Parent = self.ButtonContainer
-    
-    -- Clear Button
-    self.ClearButton = Instance.new("TextButton")
-    self.ClearButton.Name = "ClearButton"
-    self.ClearButton.Size = UDim2.new(0.48, 0, 0, 40)
-    self.ClearButton.Position = UDim2.new(0.52, 0, 0, 5)
-    self.ClearButton.BackgroundColor3 = Color3.fromRGB(150, 100, 0)
-    self.ClearButton.Text = "CLEAR"
-    self.ClearButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    self.ClearButton.Font = Enum.Font.Code
-    self.ClearButton.TextSize = 14
-    self.ClearButton.Parent = self.ButtonContainer
-    
-    -- Status Label
     self.StatusLabel = Instance.new("TextLabel")
     self.StatusLabel.Name = "StatusLabel"
-    self.StatusLabel.Size = UDim2.new(1, 0, 0, 20)
-    self.StatusLabel.Position = UDim2.new(0, 0, 0.9, 0)
+    self.StatusLabel.Size = UDim2.new(1, -10, 0.6, 0)
+    self.StatusLabel.Position = UDim2.new(0, 5, 0, 5)
     self.StatusLabel.BackgroundTransparency = 1
     self.StatusLabel.Text = "Status: Ready"
     self.StatusLabel.TextColor3 = Color3.fromRGB(0, 200, 0)
-    self.StatusLabel.Font = Enum.Font.Code
-    self.StatusLabel.TextSize = 12
-    self.StatusLabel.Parent = self.Content
+    self.StatusLabel.Font = Enum.Font.SourceSans
+    self.StatusLabel.TextSize = 16
+    self.StatusLabel.Parent = self.StatusBox
     
-    -- Notification System
+    self.TargetLabel = Instance.new("TextLabel")
+    self.TargetLabel.Name = "TargetLabel"
+    self.TargetLabel.Size = UDim2.new(1, -10, 0.4, 0)
+    self.TargetLabel.Position = UDim2.new(0, 5, 0.6, 0)
+    self.TargetLabel.BackgroundTransparency = 1
+    self.TargetLabel.Text = "Target: " .. TARGET_PLAYER_NAME
+    self.TargetLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+    self.TargetLabel.Font = Enum.Font.SourceSans
+    self.TargetLabel.TextSize = 14
+    self.TargetLabel.Parent = self.StatusBox
+    
+    -- Controls
+    self.Controls = Instance.new("Frame")
+    self.Controls.Name = "Controls"
+    self.Controls.Size = UDim2.new(1, 0, 0, 120)
+    self.Controls.Position = UDim2.new(0, 0, 0, 70)
+    self.Controls.BackgroundTransparency = 1
+    self.Controls.Parent = self.Content
+    
+    -- Toggle Button
+    self.ToggleButton = Instance.new("TextButton")
+    self.ToggleButton.Name = "ToggleButton"
+    self.ToggleButton.Size = UDim2.new(1, 0, 0, 40)
+    self.ToggleButton.Position = UDim2.new(0, 0, 0, 5)
+    self.ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+    self.ToggleButton.Text = "START FOLLOWING"
+    self.ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    self.ToggleButton.Font = Enum.Font.SourceSansBold
+    self.ToggleButton.TextSize = 16
+    self.ToggleButton.Parent = self.Controls
+    
+    -- Settings
+    local settingsFrame = Instance.new("Frame")
+    settingsFrame.Name = "Settings"
+    settingsFrame.Size = UDim2.new(1, 0, 0, 40)
+    settingsFrame.Position = UDim2.new(0, 0, 0, 50)
+    settingsFrame.BackgroundTransparency = 1
+    settingsFrame.Parent = self.Controls
+    
+    local intervalLabel = Instance.new("TextLabel")
+    intervalLabel.Name = "IntervalLabel"
+    intervalLabel.Size = UDim2.new(0.6, 0, 1, 0)
+    intervalLabel.Position = UDim2.new(0, 0, 0, 0)
+    intervalLabel.BackgroundTransparency = 1
+    intervalLabel.Text = "Update Interval: " .. TELEPORT_SETTINGS.UpdateInterval .. "s"
+    intervalLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    intervalLabel.Font = Enum.Font.SourceSans
+    intervalLabel.TextSize = 12
+    intervalLabel.TextXAlignment = Enum.TextXAlignment.Left
+    intervalLabel.Parent = settingsFrame
+    
+    -- Notification
     self.Notification = Instance.new("TextLabel")
     self.Notification.Name = "Notification"
-    self.Notification.Size = UDim2.new(1, -20, 0, 0)
-    self.Notification.Position = UDim2.new(0, 10, 1, 10)
+    self.Notification.Size = UDim2.new(1, -10, 0, 0)
+    self.Notification.Position = UDim2.new(0, 5, 1, 5)
     self.Notification.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     self.Notification.BorderSizePixel = 1
     self.Notification.BorderColor3 = Color3.fromRGB(0, 150, 255)
     self.Notification.Text = ""
     self.Notification.TextColor3 = Color3.fromRGB(255, 255, 255)
-    self.Notification.Font = Enum.Font.Code
+    self.Notification.Font = Enum.Font.SourceSans
     self.Notification.TextSize = 12
     self.Notification.Visible = false
-    self.Notification.Parent = self.Panel
+    self.Notification.Parent = self.Content
 end
 
 function DraggablePanel:BindEvents()
@@ -291,30 +355,25 @@ function DraggablePanel:BindEvents()
     
     -- Close functionality
     self.CloseButton.MouseButton1Click:Connect(function()
-        self:Destroy()
+        TeleportSystem:StopFollowing()
+        self.ScreenGui:Destroy()
     end)
     
-    -- Execute button
-    self.ExecuteButton.MouseButton1Click:Connect(function()
-        self:ExecuteCurrentScript()
+    -- Toggle teleport button
+    self.ToggleButton.MouseButton1Click:Connect(function()
+        self:ToggleTeleport()
     end)
     
-    -- Clear button
-    self.ClearButton.MouseButton1Click:Connect(function()
-        self.ScriptBox.ScriptInput.Text = ""
-        self:ShowNotification("Script cleared", Color3.fromRGB(0, 200, 255))
-    end)
-    
-    -- Keybinds for quick access
+    -- Keyboard shortcuts
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
         
-        if input.KeyCode == Enum.KeyCode.RightControl then
-            self:ToggleVisibility()
-        elseif input.KeyCode == Enum.KeyCode.F9 then
-            self:ExecuteCurrentScript()
-        elseif input.KeyCode == Enum.KeyCode.F10 then
-            self:ToggleMinimize()
+        -- F1 untuk toggle teleport
+        if input.KeyCode == Enum.KeyCode.F1 then
+            self:ToggleTeleport()
+        -- F2 untuk toggle UI
+        elseif input.KeyCode == Enum.KeyCode.F2 then
+            self.Panel.Visible = not self.Panel.Visible
         end
     end)
 end
@@ -326,47 +385,40 @@ function DraggablePanel:ToggleMinimize()
     
     if self.IsMinimized then
         local tween = TweenService:Create(self.Panel, tweenInfo, {
-            Size = PANEL_SETTINGS.MinimizedSize
+            Size = UDim2.new(0, 350, 0, 30)
         })
         tween:Play()
         self.Content.Visible = false
-        self.Title.Text = "Delta [Minimized] - RightCtrl to open"
+        self.Title.Text = "Teleport [" .. (TeleportSystem._isFollowing and "ON" or "OFF") .. "]"
     else
         local tween = TweenService:Create(self.Panel, tweenInfo, {
-            Size = PANEL_SETTINGS.DefaultSize
+            Size = UDim2.new(0, 350, 0, 250)
         })
         tween:Play()
         self.Content.Visible = true
-        self.Title.Text = "Delta Executor v1.0"
+        self.Title.Text = "Auto-Teleport to " .. TARGET_PLAYER_NAME
     end
 end
 
-function DraggablePanel:ToggleVisibility()
-    self.Panel.Visible = not self.Panel.Visible
-end
-
-function DraggablePanel:ExecuteCurrentScript()
-    local scriptCode = self.ScriptBox.ScriptInput.Text
-    
-    if scriptCode == "" or scriptCode == nil then
-        self:ShowNotification("No script to execute", Color3.fromRGB(255, 100, 100))
-        return
-    end
-    
-    self.StatusLabel.Text = "Status: Executing..."
-    self.StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
-    
-    -- Use Delta Executor to run the script
-    local success, result = DeltaExecutor:ExecuteScript(scriptCode)
+function DraggablePanel:ToggleTeleport()
+    local success, message = TeleportSystem:ToggleFollowing()
     
     if success then
-        self.StatusLabel.Text = "Status: Execution successful"
-        self.StatusLabel.TextColor3 = Color3.fromRGB(0, 200, 0)
-        self:ShowNotification("Script executed successfully", Color3.fromRGB(0, 200, 100))
+        if TeleportSystem._isFollowing then
+            self.ToggleButton.Text = "STOP FOLLOWING"
+            self.ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+            self.StatusLabel.Text = "Status: FOLLOWING " .. TARGET_PLAYER_NAME
+            self.StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+            self:ShowNotification("Now following " .. TARGET_PLAYER_NAME, Color3.fromRGB(0, 200, 100))
+        else
+            self.ToggleButton.Text = "START FOLLOWING"
+            self.ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+            self.StatusLabel.Text = "Status: Stopped"
+            self.StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            self:ShowNotification("Stopped following " .. TARGET_PLAYER_NAME, Color3.fromRGB(255, 100, 100))
+        end
     else
-        self.StatusLabel.Text = "Status: Execution failed"
-        self.StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        self:ShowNotification("Execution error: " .. tostring(result), Color3.fromRGB(255, 100, 100))
+        self:ShowNotification("Error: " .. message, Color3.fromRGB(255, 50, 50))
     end
 end
 
@@ -374,147 +426,89 @@ function DraggablePanel:ShowNotification(message, color)
     self.Notification.Text = message
     self.Notification.BackgroundColor3 = color or Color3.fromRGB(30, 30, 40)
     self.Notification.Visible = true
-    self.Notification.Size = UDim2.new(1, -20, 0, 30)
+    self.Notification.Size = UDim2.new(1, -10, 0, 30)
     
     wait(3)
     
-    self.Notification.Size = UDim2.new(1, -20, 0, 0)
+    self.Notification.Size = UDim2.new(1, -10, 0, 0)
     wait(0.3)
     self.Notification.Visible = false
 end
 
-function DraggablePanel:Destroy()
-    self.ScreenGui:Destroy()
-    DeltaExecutor._isConnected = false
+-- Update status secara real-time
+local function updateStatusLoop(panel)
+    while panel and panel.Panel and panel.Panel.Parent do
+        if TeleportSystem._isFollowing then
+            -- Cari target untuk menampilkan status real-time
+            local targetFound = false
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p.Name == TARGET_PLAYER_NAME then
+                    targetFound = true
+                    
+                    -- Update target position info
+                    if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        local pos = p.Character.HumanoidRootPart.Position
+                        panel.TargetLabel.Text = string.format(
+                            "Target: %s (%.1f, %.1f, %.1f)", 
+                            TARGET_PLAYER_NAME, 
+                            pos.X, pos.Y, pos.Z
+                        )
+                    end
+                    break
+                end
+            end
+            
+            if not targetFound then
+                panel.TargetLabel.Text = "Target: " .. TARGET_PLAYER_NAME .. " (NOT FOUND)"
+                panel.TargetLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+            else
+                panel.TargetLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+            end
+        end
+        
+        wait(1)
+    end
 end
 
 -- Initialize the system
-local function InitializeDeltaExecutor()
-    print("Initializing Delta Executor UI...")
-    
-    -- Initialize Delta Executor
-    DeltaExecutor:Connect()
+local function InitializeAutoTeleport()
+    print("Initializing Auto-Teleport System...")
+    print("Target Player: " .. TARGET_PLAYER_NAME)
     
     -- Create UI Panel
-    local panel = DraggablePanel.new("DeltaExecutorPanel")
+    local panel = DraggablePanel.new()
     
-    -- Add sample scripts to quick load
-    local sampleScripts = {
-        ["Teleport to Player"] = [[
-            local targetName = "Wikenitsu"
-            local Players = game:GetService("Players")
-            local player = Players.LocalPlayer
-            local target = Players:FindFirstChild(targetName)
-            
-            if target and target.Character then
-                player.Character:MoveTo(target.Character.HumanoidRootPart.Position)
-                print("Teleported to", targetName)
-            else
-                warn("Target not found:", targetName)
-            end
-        ]],
-        
-        ["Speed Hack"] = [[
-            local player = game:GetService("Players").LocalPlayer
-            local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
-            
-            if humanoid then
-                humanoid.WalkSpeed = 100
-                print("Speed set to 100")
-            end
-        ]],
-        
-        ["Fly Script"] = [[
-            -- Simple fly script
-            local player = game:GetService("Players").LocalPlayer
-            local mouse = player:GetMouse()
-            
-            local flying = true
-            local speed = 50
-            
-            local function fly()
-                local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
-                if not humanoid then return end
-                
-                local root = player.Character.HumanoidRootPart
-                if not root then return end
-                
-                humanoid.PlatformStand = true
-                
-                while flying and wait() do
-                    local direction = Vector3.new()
-                    
-                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                        direction = direction + root.CFrame.LookVector
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                        direction = direction - root.CFrame.LookVector
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                        direction = direction - root.CFrame.RightVector
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                        direction = direction + root.CFrame.RightVector
-                    end
-                    
-                    if direction.Magnitude > 0 then
-                        direction = direction.Unit * speed
-                    end
-                    
-                    root.Velocity = direction
-                    root.RotVelocity = Vector3.new()
-                end
-                
-                humanoid.PlatformStand = false
-            end
-            
-            fly()
-        ]]
-    }
+    -- Start status update loop
+    coroutine.wrap(updateStatusLoop)(panel)
     
-    -- Create quick script buttons
-    local yOffset = 50
-    for scriptName, scriptCode in pairs(sampleScripts) do
-        local button = Instance.new("TextButton")
-        button.Name = scriptName
-        button.Size = UDim2.new(1, 0, 0, 30)
-        button.Position = UDim2.new(0, 0, 0, yOffset)
-        button.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-        button.Text = scriptName
-        button.TextColor3 = Color3.fromRGB(200, 200, 255)
-        button.Font = Enum.Font.Code
-        button.TextSize = 12
-        button.Parent = panel.ButtonContainer
-        
-        button.MouseButton1Click:Connect(function()
-            panel.ScriptBox.ScriptInput.Text = scriptCode
-            panel:ShowNotification("Loaded: " .. scriptName, Color3.fromRGB(0, 150, 255))
-        end)
-        
-        yOffset = yOffset + 35
+    -- Auto-start jika diatur
+    if TELEPORT_SETTINGS.AutoStart then
+        wait(1)
+        panel:ToggleTeleport()
     end
     
-    -- Auto-resize script box
-    panel.ScriptBox.ScriptInput:GetPropertyChangedSignal("Text"):Connect(function()
-        local textHeight = panel.ScriptBox.ScriptInput.TextBounds.Y + 20
-        panel.ScriptBox.CanvasSize = UDim2.new(0, 0, 0, textHeight)
-    end)
-    
-    -- Welcome notification
-    panel:ShowNotification("Delta Executor loaded! Press RightCtrl to hide/show", Color3.fromRGB(0, 150, 255))
+    -- Print instructions
+    print("\n=== Auto-Teleport System Loaded ===")
+    print("Target: " .. TARGET_PLAYER_NAME)
+    print("Controls:")
+    print("- Click START FOLLOWING button")
+    print("- Or press F1 to toggle")
+    print("- Press F2 to hide/show panel")
+    print("- Drag top bar to move panel")
+    print("- Click _ to minimize")
+    print("===================================")
     
     return panel
 end
 
--- Start the executor
-local success, err = pcall(InitializeDeltaExecutor)
+-- Start the system
+local success, err = pcall(InitializeAutoTeleport)
 if not success then
-    warn("Failed to initialize Delta Executor:", err)
+    warn("Failed to initialize Auto-Teleport:", err)
+    -- Fallback simple version
+    local function simpleFollow()
+        TeleportSystem:StartFollowing()
+        print("Simple auto-teleport started for " .. TARGET_PLAYER_NAME)
+    end
+    simpleFollow()
 end
-
-print("Delta Executor Script Loaded Successfully!")
-print("Controls:")
-print("- RightCtrl: Toggle UI visibility")
-print("- F9: Execute current script")
-print("- F10: Minimize/Restore panel")
-print("- Drag top bar to move panel")
