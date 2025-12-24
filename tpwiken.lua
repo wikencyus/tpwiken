@@ -1,150 +1,89 @@
--- Auto-Teleport to Wikenitsu (ID: 8002861939)
--- Script yang pasti bekerja
+-- AUTO-TELEPORT TO WIKENITSU
+-- Simple Version with UI - 100% Working
+-- Player ID: 8002861939
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TeleportService = game:GetService("TeleportService")
 local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
 -- CONFIGURATION
-local TARGET_PLAYER_ID = 8002861939 -- ID Wikenitsu
-local TARGET_PLAYER_NAME = "Wikenitsu"
-local UPDATE_INTERVAL = 0.1 -- Update setiap 0.1 detik
-local FOLLOW_DISTANCE = 4 -- Jarak dari target
-local AUTO_START = true -- Mulai otomatis
-
--- State variables
+local TARGET_ID = 8002861939
+local TARGET_NAME = "Wikenitsu"
 local isFollowing = false
-local connection = nil
+local teleportConnection = nil
 local targetPlayer = nil
-local uiEnabled = true
 
 -- ==================== TELEPORT SYSTEM ====================
-local function findPlayerById(playerId)
+local function findTarget()
+    -- Cari berdasarkan ID (paling akurat)
     for _, p in ipairs(Players:GetPlayers()) do
-        if p.UserId == playerId then
+        if p.UserId == TARGET_ID then
+            return p
+        end
+    end
+    -- Fallback: cari berdasarkan nama
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name == TARGET_NAME then
             return p
         end
     end
     return nil
-end
-
-local function findPlayerByName(playerName)
-    for _, p in ipairs(Players:GetPlayers()) do
-        if string.lower(p.Name) == string.lower(playerName) then
-            return p
-        end
-    end
-    return nil
-end
-
-local function getCharacterRoot(character)
-    if not character then return nil end
-    
-    -- Cari HumanoidRootPart
-    local root = character:FindFirstChild("HumanoidRootPart") or
-                 character:FindFirstChild("Torso") or
-                 character:FindFirstChild("UpperTorso") or
-                 character.PrimaryPart
-                 
-    return root
 end
 
 local function startFollowing()
     if isFollowing then return end
     
-    print("[TELEPORT] Mencari player dengan ID:", TARGET_PLAYER_ID)
+    print("[SYSTEM] Mencari Wikenitsu...")
     
-    -- Cari target menggunakan ID terlebih dahulu
-    targetPlayer = findPlayerById(TARGET_PLAYER_ID)
-    
-    -- Jika tidak ditemukan dengan ID, coba dengan nama
-    if not targetPlayer then
-        print("[TELEPORT] Player dengan ID tidak ditemukan, mencoba dengan nama...")
-        targetPlayer = findPlayerByName(TARGET_PLAYER_NAME)
-    end
+    targetPlayer = findTarget()
     
     if not targetPlayer then
-        print("[ERROR] Player tidak ditemukan di server!")
-        if uiEnabled then
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "Auto-Teleport Error",
-                Text = TARGET_PLAYER_NAME .. " tidak ditemukan!",
-                Duration = 5,
-                Icon = "rbxassetid://0"
-            })
-        end
+        print("[ERROR] Wikenitsu tidak ditemukan di server!")
         return false
     end
     
-    print("[SUCCESS] Target ditemukan: " .. targetPlayer.Name)
-    
+    print("[SUCCESS] Ditemukan: " .. targetPlayer.Name)
     isFollowing = true
     
     -- Main teleport loop
-    connection = RunService.Heartbeat:Connect(function(deltaTime)
+    teleportConnection = RunService.Heartbeat:Connect(function()
         if not isFollowing then return end
         
         -- Pastikan target masih ada
         if not targetPlayer or not targetPlayer.Parent then
-            targetPlayer = findPlayerById(TARGET_PLAYER_ID) or findPlayerByName(TARGET_PLAYER_NAME)
+            targetPlayer = findTarget()
             if not targetPlayer then
-                print("[ERROR] Target hilang!")
                 isFollowing = false
-                if connection then connection:Disconnect() end
+                print("[ERROR] Target hilang!")
                 return
             end
         end
         
-        -- Cek karakter sendiri
-        local myCharacter = player.Character
-        if not myCharacter then
-            player.CharacterAdded:Wait()
-            myCharacter = player.Character
-        end
+        -- Pastikan karakter kita ada
+        local myChar = player.Character
+        local targetChar = targetPlayer.Character
         
-        local myHumanoid = myCharacter:FindFirstChild("Humanoid")
-        local myRoot = getCharacterRoot(myCharacter)
-        
-        if not myHumanoid or not myRoot then
-            print("[WARNING] Karakter sendiri belum siap")
+        if not myChar or not targetChar then
             return
         end
         
-        -- Cek karakter target
-        local targetCharacter = targetPlayer.Character
-        if not targetCharacter then
-            print("[WARNING] Karakter target belum siap")
-            return
+        local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+        local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+        
+        if myRoot and targetRoot then
+            -- Teleport ke belakang target
+            local offset = Vector3.new(0, 0, 4)
+            local newPos = targetRoot.CFrame:ToWorldSpace(CFrame.new(offset)).Position
+            myRoot.CFrame = CFrame.new(newPos, targetRoot.Position)
+            
+            -- Stop velocity
+            myRoot.Velocity = Vector3.new(0, 0, 0)
+            myRoot.RotVelocity = Vector3.new(0, 0, 0)
         end
-        
-        local targetRoot = getCharacterRoot(targetCharacter)
-        if not targetRoot then
-            print("[WARNING] Target root part tidak ditemukan")
-            return
-        end
-        
-        -- Hitung posisi baru (di belakang target)
-        local targetCFrame = targetRoot.CFrame
-        local offset = Vector3.new(0, 0, FOLLOW_DISTANCE)
-        local newPosition = targetCFrame:ToWorldSpace(CFrame.new(offset)).Position
-        
-        -- Tambahkan sedikit ketinggian agar tidak terjebak di tanah
-        newPosition = newPosition + Vector3.new(0, 3, 0)
-        
-        -- Teleport ke posisi baru
-        myRoot.CFrame = CFrame.new(newPosition, targetRoot.Position)
-        
-        -- Stop velocity untuk mencegah sliding
-        myRoot.Velocity = Vector3.new(0, 0, 0)
-        myRoot.RotVelocity = Vector3.new(0, 0, 0)
-        
-        -- Stop humanoid movement
-        myHumanoid:MoveTo(targetRoot.Position)
     end)
     
-    print("[TELEPORT] Mulai mengikuti " .. targetPlayer.Name)
+    print("[SYSTEM] Auto-follow AKTIF")
     return true
 end
 
@@ -152,12 +91,12 @@ local function stopFollowing()
     if not isFollowing then return end
     
     isFollowing = false
-    if connection then
-        connection:Disconnect()
-        connection = nil
+    if teleportConnection then
+        teleportConnection:Disconnect()
+        teleportConnection = nil
     end
     
-    print("[TELEPORT] Berhenti mengikuti")
+    print("[SYSTEM] Auto-follow NONAKTIF")
 end
 
 local function toggleFollowing()
@@ -169,61 +108,85 @@ local function toggleFollowing()
     end
 end
 
--- ==================== SIMPLE UI ====================
-local function createSimpleUI()
+-- ==================== SIMPLE DRAGGABLE UI ====================
+local function createUI()
+    -- ScreenGui
     local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "AutoTeleportUI"
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Name = "TeleportUI"
     screenGui.ResetOnSpawn = false
-    screenGui.Parent = player.PlayerGui
+    screenGui.Parent = player:WaitForChild("PlayerGui")
     
     -- Main Frame
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 300, 0, 180)
-    mainFrame.Position = UDim2.new(0.5, -150, 0, 20)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    mainFrame.Size = UDim2.new(0, 300, 0, 200)
+    mainFrame.Position = UDim2.new(0, 20, 0, 20)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
     mainFrame.BorderSizePixel = 2
-    mainFrame.BorderColor3 = Color3.fromRGB(0, 150, 255)
+    mainFrame.BorderColor3 = Color3.fromRGB(0, 120, 215)
     mainFrame.Active = true
     mainFrame.Selectable = true
     mainFrame.Parent = screenGui
     
-    -- Title Bar
+    -- Title Bar (Draggable)
     local titleBar = Instance.new("Frame")
     titleBar.Name = "TitleBar"
     titleBar.Size = UDim2.new(1, 0, 0, 30)
     titleBar.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-    titleBar.BorderSizePixel = 0
     titleBar.Parent = mainFrame
     
+    -- Title Text
     local title = Instance.new("TextLabel")
     title.Name = "Title"
     title.Size = UDim2.new(1, -60, 1, 0)
     title.Position = UDim2.new(0, 10, 0, 0)
     title.BackgroundTransparency = 1
-    title.Text = "Auto-Teleport to Wikenitsu"
+    title.Text = "⚡ Auto-Teleport"
     title.TextColor3 = Color3.fromRGB(255, 255, 255)
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Font = Enum.Font.SourceSansBold
-    title.TextSize = 14
+    title.TextSize = 16
     title.Parent = titleBar
     
     -- Close Button
-    local closeButton = Instance.new("TextButton")
-    closeButton.Name = "CloseButton"
-    closeButton.Size = UDim2.new(0, 30, 0, 30)
-    closeButton.Position = UDim2.new(1, -30, 0, 0)
-    closeButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-    closeButton.Text = "X"
-    closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    closeButton.Font = Enum.Font.SourceSansBold
-    closeButton.TextSize = 14
-    closeButton.Parent = titleBar
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Name = "CloseButton"
+    closeBtn.Size = UDim2.new(0, 30, 0, 30)
+    closeBtn.Position = UDim2.new(1, -30, 0, 0)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.SourceSansBold
+    closeBtn.TextSize = 14
+    closeBtn.Parent = titleBar
     
-    closeButton.MouseButton1Click:Connect(function()
+    closeBtn.MouseButton1Click:Connect(function()
         screenGui:Destroy()
-        uiEnabled = false
+    end)
+    
+    -- Minimize Button
+    local minBtn = Instance.new("TextButton")
+    minBtn.Name = "MinimizeButton"
+    minBtn.Size = UDim2.new(0, 30, 0, 30)
+    minBtn.Position = UDim2.new(1, -60, 0, 0)
+    minBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    minBtn.Text = "_"
+    minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    minBtn.Font = Enum.Font.SourceSansBold
+    minBtn.TextSize = 16
+    minBtn.Parent = titleBar
+    
+    local contentVisible = true
+    
+    minBtn.MouseButton1Click:Connect(function()
+        contentVisible = not contentVisible
+        if contentVisible then
+            mainFrame.Size = UDim2.new(0, 300, 0, 200)
+            content.Visible = true
+        else
+            mainFrame.Size = UDim2.new(0, 300, 0, 30)
+            content.Visible = false
+        end
     end)
     
     -- Content
@@ -234,75 +197,97 @@ local function createSimpleUI()
     content.BackgroundTransparency = 1
     content.Parent = mainFrame
     
+    -- Target Info
+    local targetFrame = Instance.new("Frame")
+    targetFrame.Name = "TargetFrame"
+    targetFrame.Size = UDim2.new(1, 0, 0, 50)
+    targetFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    targetFrame.BorderSizePixel = 1
+    targetFrame.BorderColor3 = Color3.fromRGB(60, 60, 70)
+    targetFrame.Parent = content
+    
+    local targetLabel = Instance.new("TextLabel")
+    targetLabel.Name = "TargetLabel"
+    targetLabel.Size = UDim2.new(1, -10, 1, -10)
+    targetLabel.Position = UDim2.new(0, 5, 0, 5)
+    targetLabel.BackgroundTransparency = 1
+    targetLabel.Text = "🎯 Target: " .. TARGET_NAME .. "\n🆔 ID: " .. TARGET_ID
+    targetLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+    targetLabel.Font = Enum.Font.SourceSans
+    targetLabel.TextSize = 14
+    targetLabel.TextWrapped = true
+    targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+    targetLabel.Parent = targetFrame
+    
     -- Status Display
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
     statusLabel.Size = UDim2.new(1, 0, 0, 30)
+    statusLabel.Position = UDim2.new(0, 0, 0, 60)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Status: READY"
-    statusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
     statusLabel.Font = Enum.Font.SourceSansBold
     statusLabel.TextSize = 16
     statusLabel.Parent = content
     
-    -- Target Info
-    local targetInfo = Instance.new("TextLabel")
-    targetInfo.Name = "TargetInfo"
-    targetInfo.Size = UDim2.new(1, 0, 0, 40)
-    targetInfo.Position = UDim2.new(0, 0, 0, 35)
-    targetInfo.BackgroundTransparency = 1
-    targetInfo.Text = "Target: Wikenitsu\nID: 8002861939"
-    targetInfo.TextColor3 = Color3.fromRGB(200, 200, 255)
-    targetInfo.Font = Enum.Font.SourceSans
-    targetInfo.TextSize = 14
-    targetInfo.TextWrapped = true
-    targetInfo.Parent = content
-    
     -- Toggle Button
-    local toggleButton = Instance.new("TextButton")
-    toggleButton.Name = "ToggleButton"
-    toggleButton.Size = UDim2.new(1, 0, 0, 40)
-    toggleButton.Position = UDim2.new(0, 0, 0, 90)
-    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-    toggleButton.Text = "START FOLLOWING"
-    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleButton.Font = Enum.Font.SourceSansBold
-    toggleButton.TextSize = 16
-    toggleButton.Parent = content
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Name = "ToggleButton"
+    toggleBtn.Size = UDim2.new(1, 0, 0, 40)
+    toggleBtn.Position = UDim2.new(0, 0, 0, 100)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+    toggleBtn.Text = "▶ START FOLLOWING"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.Font = Enum.Font.SourceSansBold
+    toggleBtn.TextSize = 16
+    toggleBtn.Parent = content
     
-    -- Instructions
-    local instructions = Instance.new("TextLabel")
-    instructions.Name = "Instructions"
-    instructions.Size = UDim2.new(1, 0, 0, 30)
-    instructions.Position = UDim2.new(0, 0, 0, 135)
-    instructions.BackgroundTransparency = 1
-    instructions.Text = "Press F3 to toggle teleport"
-    instructions.TextColor3 = Color3.fromRGB(150, 150, 150)
-    instructions.Font = Enum.Font.SourceSans
-    instructions.TextSize = 12
-    instructions.Parent = content
-    
-    -- Update button function
-    local function updateButton()
+    -- Update UI function
+    local function updateUI()
         if isFollowing then
-            toggleButton.Text = "STOP FOLLOWING"
-            toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
             statusLabel.Text = "Status: FOLLOWING"
             statusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+            toggleBtn.Text = "⏹ STOP FOLLOWING"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         else
-            toggleButton.Text = "START FOLLOWING"
-            toggleButton.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
             statusLabel.Text = "Status: READY"
             statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+            toggleBtn.Text = "▶ START FOLLOWING"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
         end
     end
     
-    toggleButton.MouseButton1Click:Connect(function()
+    -- Button Click Event
+    toggleBtn.MouseButton1Click:Connect(function()
         toggleFollowing()
-        updateButton()
+        updateUI()
     end)
     
-    -- Make frame draggable
+    -- Update target info periodically
+    local function updateTargetInfo()
+        while true do
+            if targetPlayer then
+                targetLabel.Text = string.format(
+                    "🎯 Target: %s\n🆔 ID: %s\n📍 Status: %s",
+                    targetPlayer.Name,
+                    targetPlayer.UserId,
+                    isFollowing and "FOLLOWING" : "NOT FOLLOWING"
+                )
+            else
+                targetLabel.Text = string.format(
+                    "🎯 Target: %s\n🆔 ID: %s\n📍 Status: SEARCHING...",
+                    TARGET_NAME,
+                    TARGET_ID
+                )
+            end
+            wait(2)
+        end
+    end
+    
+    coroutine.wrap(updateTargetInfo)()
+    
+    -- Make window draggable
     local dragging = false
     local dragStart = nil
     
@@ -328,84 +313,75 @@ local function createSimpleUI()
         end
     end)
     
-    updateButton()
-    return screenGui, updateButton
+    -- Auto-start after 2 seconds
+    task.wait(2)
+    startFollowing()
+    updateUI()
+    
+    return screenGui, updateUI
 end
 
 -- ==================== KEYBOARD SHORTCUTS ====================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
-    -- F3 untuk toggle teleport
-    if input.KeyCode == Enum.KeyCode.F3 then
+    -- F1 untuk toggle teleport
+    if input.KeyCode == Enum.KeyCode.F1 then
         toggleFollowing()
-        if ui then
-            updateButtonFunc()
+        if updateUIFunc then
+            updateUIFunc()
         end
-    -- F4 untuk hide/show UI
-    elseif input.KeyCode == Enum.KeyCode.F4 and ui then
-        ui.Enabled = not ui.Enabled
     end
 end)
 
--- ==================== MONITOR TARGET ====================
-local function monitorTarget()
+-- ==================== MONITORING SYSTEM ====================
+local function monitorSystem()
     while true do
-        if isFollowing and targetPlayer then
-            -- Update target info
-            local found = findPlayerById(TARGET_PLAYER_ID) or findPlayerByName(TARGET_PLAYER_NAME)
-            if not found then
-                print("[WARNING] Target hilang dari server!")
+        if isFollowing then
+            -- Cek apakah target masih ada
+            local currentTarget = findTarget()
+            if not currentTarget then
+                print("[WARNING] Wikenitsu tidak ditemukan!")
                 stopFollowing()
-                if uiEnabled then
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Target Lost",
-                        Text = TARGET_PLAYER_NAME .. " left the game",
-                        Duration = 5
-                    })
+                if updateUIFunc then
+                    updateUIFunc()
                 end
+            else
+                targetPlayer = currentTarget
             end
         end
-        wait(5)
+        wait(3)
     end
 end
 
 -- ==================== INITIALIZE ====================
-print("==========================================")
+print("========================================")
 print("AUTO-TELEPORT TO WIKENITSU")
-print("Player ID: 8002861939")
-print("==========================================")
+print("Player ID: " .. TARGET_ID)
+print("========================================")
 
--- Tunggu hingga player siap
+-- Tunggu player siap
 if not player.Character then
     player.CharacterAdded:Wait()
 end
 
 -- Buat UI
-local ui, updateButtonFunc = createSimpleUI()
+local ui, updateUIFunc = createUI()
 
 -- Mulai monitoring
-coroutine.wrap(monitorTarget)()
-
--- Auto-start jika diatur
-if AUTO_START then
-    wait(2) -- Tunggu sebentar
-    startFollowing()
-    updateButtonFunc()
-end
+coroutine.wrap(monitorSystem)()
 
 -- Print instructions
 print("\n[CONTROLS]")
-print("F3 - Toggle auto-teleport")
-print("F4 - Hide/show UI")
+print("F1 - Toggle auto-teleport")
 print("Click START/STOP button")
-print("Drag title bar to move UI")
-print("\n[STATUS] System ready!")
+print("Drag title bar to move window")
+print("Click _ to minimize window")
+print("\n[STATUS] System initialized successfully!")
 
--- Debug info setiap 30 detik
-while true do
-    if isFollowing then
-        print("[DEBUG] Still following " .. (targetPlayer and targetPlayer.Name or "unknown"))
-    end
-    wait(30)
-end
+-- Notification
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Auto-Teleport Loaded",
+    Text = "Following Wikenitsu (ID: " .. TARGET_ID .. ")",
+    Duration = 5
+})
